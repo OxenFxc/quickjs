@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  pull_request:
+    paths:
+      - '**'
+      - '!.gitignore'
+      - '!LICENSE'
+      - '!TODO'
+      - '!doc/**'
+      - '!examples/**'
+      - '.github/workflows/ci.yml'
+  push:
+    branches:
+      - '*'
+
+jobs:
+  android:
+    name: Android QJS C Core
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a]  # 安卓主流架构，按需增减
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: 安装安卓 SDK/NDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 24
+          ndk-version: 25.2.9519653  # 稳定兼容版本
+          build-tools-version: 34.0.0
+      - name: 编译安卓 QJS C 核心动态库
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653
+          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          # 架构目标配置
+          if [ "${{ matrix.abi }}" = "arm64-v8a" ]; then
+            TARGET=aarch64-linux-android24
+          else
+            TARGET=armv7a-linux-androideabi24
+          fi
+          # 编译 libquickjs.so（纯 QJS C 核心，无 JS 编译）
+          make -j$(getconf _NPROCESSORS_ONLN) \
+            CC=$TOOLCHAIN/bin/$TARGET-clang \
+            AR=$TOOLCHAIN/bin/llvm-ar \
+            LD=$TOOLCHAIN/bin/$TARGET-clang \
+            CFLAGS="-fPIC -D_GNU_SOURCE -DCONFIG_JSBIGINT" \
+            LDFLAGS="-shared -llog -landroid -lm" \
+            libquickjs.so
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: quickjs-android-core-${{ matrix.abi }}
+          path: libquickjs.so
